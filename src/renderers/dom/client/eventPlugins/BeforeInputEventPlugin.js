@@ -133,16 +133,33 @@ var eventTypes = {
 // Track whether we've ever handled a keypress on the space key.
 var hasSpaceKeypress = false;
 
+var KEYPRESS_CODES_TO_IGNORE = [0, 8];
+
 /**
- * Return whether a native keypress event is assumed to be a command.
- * This is required because Firefox fires `keypress` events for key commands
- * (cut, copy, select-all, etc.) even though no character is inserted.
+ * As of v27, Firefox may fire keypress events even when no character
+ * will be inserted. These keypress events should be discarded when determining
+ * `beforeInput` data, since there is none. A few possibilities:
+ *
+ * - `which` is `0` (Arrow keys, Esc key, etc.) or `8` (Backspace).
+ *
+ * - `which` is the pressed key code, but no char is available.
+ *   Ex: 'AltGr + d` in Polish. There is no modified character for
+ *   this key combination and no character is inserted into the
+ *   document, but FF fires the keypress for char code `100` anyway.
+ *   No `input` event will occur.
+ *
+ * - `which` is the pressed key code, but a command combination is
+ *   being used. Ex: `Cmd+C`. No character is inserted, and no
+ *   `input` event will occur.
  */
-function isKeypressCommand(nativeEvent) {
+function shouldIgnoreKeyPress(nativeEvent) {
   return (
-    (nativeEvent.ctrlKey || nativeEvent.altKey || nativeEvent.metaKey) &&
-    // ctrlKey && altKey is equivalent to AltGr, and is not a command.
-    !(nativeEvent.ctrlKey && nativeEvent.altKey)
+    KEYPRESS_CODES_TO_IGNORE.indexOf(nativeEvent.which) !== -1 ||
+    (
+      (nativeEvent.ctrlKey || nativeEvent.altKey || nativeEvent.metaKey) &&
+      // ctrlKey && altKey is equivalent to AltGr, and is not a command.
+      !(nativeEvent.ctrlKey && nativeEvent.altKey)
+    )
   );
 }
 
@@ -367,23 +384,7 @@ function getFallbackBeforeInputChars(topLevelType, nativeEvent) {
       // chars. Paste events should not lead to BeforeInput events.
       return null;
     case topLevelTypes.topKeyPress:
-      /**
-       * As of v27, Firefox may fire keypress events even when no character
-       * will be inserted. A few possibilities:
-       *
-       * - `which` is `0`. Arrow keys, Esc key, etc.
-       *
-       * - `which` is the pressed key code, but no char is available.
-       *   Ex: 'AltGr + d` in Polish. There is no modified character for
-       *   this key combination and no character is inserted into the
-       *   document, but FF fires the keypress for char code `100` anyway.
-       *   No `input` event will occur.
-       *
-       * - `which` is the pressed key code, but a command combination is
-       *   being used. Ex: `Cmd+C`. No character is inserted, and no
-       *   `input` event will occur.
-       */
-      if (nativeEvent.which && !isKeypressCommand(nativeEvent)) {
+      if (!shouldIgnoreKey(nativeEvent)) {
         return String.fromCharCode(nativeEvent.which);
       }
       return null;
